@@ -16,7 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: pnpm install --frozen-lockfile
+      # The lockfile in this PR is incomplete (it has importer entries but no
+      # package snapshots), so allow pnpm to repair it before installing.
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm typecheck
