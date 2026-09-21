@@ -1,0 +1,26 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #172033;
+  background: #f6f8fb;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+
+section {
+  max-width: 38rem;
+  padding: 2rem;
+}
+
+.eyebrow {
+  color: #366df0;
+  font-weight: 700;
+  text-transform: uppercase;
+}
