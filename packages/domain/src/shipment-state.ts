@@ -16,7 +16,12 @@ export const SHIPMENT_STATES = [
 ] as const;
 
 export type ShipmentState = (typeof SHIPMENT_STATES)[number];
-export type TransitionAuthority = 'system' | 'payment_provider' | 'carrier' | 'client';
+export type TransitionAuthority =
+  | 'system'
+  | 'payment_provider'
+  | 'shipping_provider'
+  | 'carrier'
+  | 'client';
 
 export const TERMINAL_SHIPMENT_STATES: ReadonlySet<ShipmentState> = new Set([
   'delivered',
@@ -24,6 +29,11 @@ export const TERMINAL_SHIPMENT_STATES: ReadonlySet<ShipmentState> = new Set([
   'cancelled',
   'label_voided',
   'failed',
+]);
+
+export const LABEL_PROVIDER_STATES: ReadonlySet<ShipmentState> = new Set([
+  'label_created',
+  'label_voided',
 ]);
 
 export const CARRIER_DERIVED_STATES: ReadonlySet<ShipmentState> = new Set([
@@ -43,7 +53,12 @@ const TRANSITIONS: Readonly<Record<ShipmentState, ReadonlySet<ShipmentState>>> =
   paid: new Set(['label_purchasing', 'cancelled']),
   label_purchasing: new Set(['label_created', 'paid', 'failed']),
   label_created: new Set(['in_transit', 'delivered', 'label_voided']),
-  in_transit: new Set(['out_for_delivery', 'delivered', 'delivery_exception', 'returned']),
+  in_transit: new Set([
+    'out_for_delivery',
+    'delivered',
+    'delivery_exception',
+    'returned',
+  ]),
   out_for_delivery: new Set(['delivered', 'delivery_exception', 'returned']),
   delivery_exception: new Set(['in_transit', 'out_for_delivery', 'returned']),
   returned: new Set(),
@@ -72,6 +87,7 @@ export type TransitionRejection =
   | 'client_cannot_set_status'
   | 'application_authority_required'
   | 'verified_evidence_required'
+  | 'label_evidence_required'
   | 'carrier_evidence_required';
 
 export type TransitionValidation =
@@ -81,19 +97,40 @@ export type TransitionValidation =
 export function validateShipmentTransition(
   from: ShipmentState,
   to: ShipmentState,
-  evidence: TransitionEvidence
+  evidence: TransitionEvidence,
 ): TransitionValidation {
-  if (isTerminalShipmentState(from)) return { valid: false, reason: 'source_is_terminal' };
-  if (!allowedTransitions(from).has(to)) return { valid: false, reason: 'transition_not_allowed' };
-  if (evidence.authority === 'client') return { valid: false, reason: 'client_cannot_set_status' };
+  if (isTerminalShipmentState(from)) {
+    return { valid: false, reason: 'source_is_terminal' };
+  }
+  if (!allowedTransitions(from).has(to)) {
+    return { valid: false, reason: 'transition_not_allowed' };
+  }
+  if (evidence.authority === 'client') {
+    return { valid: false, reason: 'client_cannot_set_status' };
+  }
   if (to === PAYMENT_SUCCESS_STATE) {
-    if (evidence.authority !== 'payment_provider' || evidence.evidenceVerified !== true) {
+    if (
+      evidence.authority !== 'payment_provider' ||
+      evidence.evidenceVerified !== true
+    ) {
       return { valid: false, reason: 'verified_evidence_required' };
     }
     return { valid: true };
   }
+  if (LABEL_PROVIDER_STATES.has(to)) {
+    if (
+      evidence.authority !== 'shipping_provider' ||
+      evidence.evidenceVerified !== true
+    ) {
+      return { valid: false, reason: 'label_evidence_required' };
+    }
+    return { valid: true };
+  }
   if (CARRIER_DERIVED_STATES.has(to)) {
-    if (evidence.authority !== 'carrier' || evidence.evidenceVerified !== true) {
+    if (
+      evidence.authority !== 'carrier' ||
+      evidence.evidenceVerified !== true
+    ) {
       return { valid: false, reason: 'carrier_evidence_required' };
     }
     return { valid: true };

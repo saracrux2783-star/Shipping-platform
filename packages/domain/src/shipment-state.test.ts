@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CARRIER_DERIVED_STATES,
+  LABEL_PROVIDER_STATES,
   PAYMENT_SUCCESS_STATE,
   SHIPMENT_STATES,
   TERMINAL_SHIPMENT_STATES,
@@ -22,7 +23,7 @@ const allTransitions: ReadonlyArray<readonly [ShipmentState, ShipmentState[]]> =
   ['delivery_exception', ['in_transit', 'out_for_delivery', 'returned']],
 ];
 
-const applicationTransitions: ReadonlyArray<readonly [ShipmentState, ShipmentState]> = [
+const systemTransitions: ReadonlyArray<readonly [ShipmentState, ShipmentState]> = [
   ['draft', 'pending_payment'],
   ['draft', 'cancelled'],
   ['pending_payment', 'payment_processing'],
@@ -31,17 +32,28 @@ const applicationTransitions: ReadonlyArray<readonly [ShipmentState, ShipmentSta
   ['payment_processing', 'failed'],
   ['paid', 'label_purchasing'],
   ['paid', 'cancelled'],
-  ['label_purchasing', 'label_created'],
   ['label_purchasing', 'paid'],
   ['label_purchasing', 'failed'],
-  ['label_created', 'label_voided'],
 ];
 
 describe('shipment state machine', () => {
-  it.each(allTransitions.flatMap(([from, targets]) => targets.map((to) => [from, to] as const)))('allows %s -> %s', (from, to) => {
+  it.each(
+    allTransitions.flatMap(([from, targets]) =>
+      targets.map((to) => [from, to] as const),
+    ),
+  )('allows %s -> %s', (from, to) => {
     expect(allowedTransitions(from)).toContain(to);
-    const authority = to === PAYMENT_SUCCESS_STATE ? 'payment_provider' : CARRIER_DERIVED_STATES.has(to) ? 'carrier' : 'system';
-    const evidence = authority === 'system' ? { authority } : { authority, evidenceVerified: true };
+    const authority =
+      PAYMENT_SUCCESS_STATE === to
+        ? 'payment_provider'
+        : LABEL_PROVIDER_STATES.has(to)
+          ? 'shipping_provider'
+          : CARRIER_DERIVED_STATES.has(to)
+            ? 'carrier'
+            : 'system';
+    const evidence =
+      authority === 'system' ? { authority } : { authority, evidenceVerified: true };
+
     expect(validateShipmentTransition(from, to, evidence)).toEqual({ valid: true });
   });
 
@@ -52,47 +64,115 @@ describe('shipment state machine', () => {
     ['in_transit', 'paid'],
     ['delivery_exception', 'delivered'],
   ] as const)('rejects invalid transition %s -> %s', (from, to) => {
-    expect(validateShipmentTransition(from, to, { authority: 'system' })).toEqual({ valid: false, reason: 'transition_not_allowed' });
+    expect(validateShipmentTransition(from, to, { authority: 'system' })).toEqual({
+      valid: false,
+      reason: 'transition_not_allowed',
+    });
   });
 
-  it.each([...TERMINAL_SHIPMENT_STATES])('recognizes %s as terminal and cannot reopen', (state) => {
-    expect(isTerminalShipmentState(state)).toBe(true);
-    for (const target of SHIPMENT_STATES) {
-      expect(validateShipmentTransition(state, target, { authority: 'system' })).toEqual({ valid: false, reason: 'source_is_terminal' });
-    }
-  });
+  it.each([...TERMINAL_SHIPMENT_STATES])(
+    'recognizes %s as terminal and cannot reopen',
+    (state) => {
+      expect(isTerminalShipmentState(state)).toBe(true);
+      for (const target of SHIPMENT_STATES) {
+        expect(
+          validateShipmentTransition(state, target, { authority: 'system' }),
+        ).toEqual({ valid: false, reason: 'source_is_terminal' });
+      }
+    },
+  );
 
   it('rejects all client-authored status changes', () => {
-    expect(validateShipmentTransition('draft', 'pending_payment', { authority: 'client' })).toEqual({ valid: false, reason: 'client_cannot_set_status' });
+    expect(
+      validateShipmentTransition('draft', 'pending_payment', {
+        authority: 'client',
+      }),
+    ).toEqual({ valid: false, reason: 'client_cannot_set_status' });
   });
 
-  it.each(applicationTransitions)('rejects payment_provider from application transition %s -> %s', (from, to) => {
-    expect(validateShipmentTransition(from, to, { authority: 'payment_provider', evidenceVerified: true })).toEqual({ valid: false, reason: 'application_authority_required' });
-  });
-
-  it.each(applicationTransitions)('rejects carrier from application transition %s -> %s', (from, to) => {
-    expect(validateShipmentTransition(from, to, { authority: 'carrier', evidenceVerified: true })).toEqual({ valid: false, reason: 'application_authority_required' });
-  });
-
-  it('rejects carrier authority for payment success', () => {
-    expect(validateShipmentTransition('payment_processing', PAYMENT_SUCCESS_STATE, { authority: 'carrier', evidenceVerified: true })).toEqual({ valid: false, reason: 'verified_evidence_required' });
-  });
-
-  it.each([...CARRIER_DERIVED_STATES)('rejects payment_provider authority for carrier transition to %s', (target) => {
-    const from = target === 'in_transit' || target === 'delivered' ? 'label_created' : 'in_transit';
-    expect(validateShipmentTransition(from, target, { authority: 'payment_provider', evidenceVerified: true })).toEqual({ valid: false, reason: 'carrier_evidence_required' });
-  });
+  it.each(systemTransitions)(
+    'rejects provider authority from system transition %s -> %s',
+    (from, to) => {
+      expect(
+        validateShipmentTransition(from, to, {
+          authority: 'payment_provider',
+          evidenceVerified: true,
+        }),
+      ).toEqual({ valid: false, reason: 'application_authority_required' });
+      expect(
+        validateShipmentTransition(from, to, {
+          authority: 'carrier',
+          evidenceVerified: true,
+        }),
+      ).toEqual({ valid: false, reason: 'application_authority_required' });
+    },
+  );
 
   it('requires verified payment evidence for payment success', () => {
-    expect(validateShipmentTransition('payment_processing', PAYMENT_SUCCESS_STATE, { authority: 'payment_provider' })).toEqual({ valid: false, reason: 'verified_evidence_required' });
-    expect(validateShipmentTransition('payment_processing', PAYMENT_SUCCESS_STATE, { authority: 'payment_provider', evidenceVerified: false })).toEqual({ valid: false, reason: 'verified_evidence_required' });
-    expect(validateShipmentTransition('payment_processing', PAYMENT_SUCCESS_STATE, { authority: 'payment_provider', evidenceVerified: true })).toEqual({ valid: true });
+    expect(
+      validateShipmentTransition('payment_processing', PAYMENT_SUCCESS_STATE, {
+        authority: 'payment_provider',
+      }),
+    ).toEqual({ valid: false, reason: 'verified_evidence_required' });
+    expect(
+      validateShipmentTransition('payment_processing', PAYMENT_SUCCESS_STATE, {
+        authority: 'payment_provider',
+        evidenceVerified: false,
+      }),
+    ).toEqual({ valid: false, reason: 'verified_evidence_required' });
+    expect(
+      validateShipmentTransition('payment_processing', PAYMENT_SUCCESS_STATE, {
+        authority: 'payment_provider',
+        evidenceVerified: true,
+      }),
+    ).toEqual({ valid: true });
   });
 
-  it.each([...CARRIER_DERIVED_STATES])('requires verified carrier evidence for %s', (target) => {
-    const from = target === 'in_transit' || target === 'delivered' ? 'label_created' : 'in_transit';
-    expect(validateShipmentTransition(from, target, { authority: 'carrier' })).toEqual({ valid: false, reason: 'carrier_evidence_required' });
-    expect(validateShipmentTransition(from, target, { authority: 'carrier', evidenceVerified: false })).toEqual({ valid: false, reason: 'carrier_evidence_required' });
-    expect(validateShipmentTransition(from, target, { authority: 'carrier', evidenceVerified: true })).toEqual({ valid: true });
-  });
+  it.each([...LABEL_PROVIDER_STATES])(
+    'requires verified shipping-provider evidence for %s',
+    (target) => {
+      const from = target === 'label_created' ? 'label_purchasing' : 'label_created';
+      expect(
+        validateShipmentTransition(from, target, {
+          authority: 'shipping_provider',
+        }),
+      ).toEqual({ valid: false, reason: 'label_evidence_required' });
+      expect(
+        validateShipmentTransition(from, target, {
+          authority: 'shipping_provider',
+          evidenceVerified: false,
+        }),
+      ).toEqual({ valid: false, reason: 'label_evidence_required' });
+      expect(
+        validateShipmentTransition(from, target, {
+          authority: 'shipping_provider',
+          evidenceVerified: true,
+        }),
+      ).toEqual({ valid: true });
+    },
+  );
+
+  it.each([...CARRIER_DERIVED_STATES])(
+    'requires verified carrier evidence for %s',
+    (target) => {
+      const from = target === 'in_transit' || target === 'delivered'
+        ? 'label_created'
+        : 'in_transit';
+      expect(
+        validateShipmentTransition(from, target, { authority: 'carrier' }),
+      ).toEqual({ valid: false, reason: 'carrier_evidence_required' });
+      expect(
+        validateShipmentTransition(from, target, {
+          authority: 'carrier',
+          evidenceVerified: false,
+        }),
+      ).toEqual({ valid: false, reason: 'carrier_evidence_required' });
+      expect(
+        validateShipmentTransition(from, target, {
+          authority: 'carrier',
+          evidenceVerified: true,
+        }),
+      ).toEqual({ valid: true });
+    },
+  );
 });
