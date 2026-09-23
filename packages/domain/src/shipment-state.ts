@@ -70,6 +70,7 @@ export type TransitionRejection =
   | 'source_is_terminal'
   | 'transition_not_allowed'
   | 'client_cannot_set_status'
+  | 'application_authority_required'
   | 'verified_evidence_required'
   | 'carrier_evidence_required';
 
@@ -85,11 +86,20 @@ export function validateShipmentTransition(
   if (isTerminalShipmentState(from)) return { valid: false, reason: 'source_is_terminal' };
   if (!allowedTransitions(from).has(to)) return { valid: false, reason: 'transition_not_allowed' };
   if (evidence.authority === 'client') return { valid: false, reason: 'client_cannot_set_status' };
-  if (to === PAYMENT_SUCCESS_STATE && (evidence.authority !== 'payment_provider' || evidence.evidenceVerified !== true)) {
-    return { valid: false, reason: 'verified_evidence_required' };
+  if (to === PAYMENT_SUCCESS_STATE) {
+    if (evidence.authority !== 'payment_provider' || evidence.evidenceVerified !== true) {
+      return { valid: false, reason: 'verified_evidence_required' };
+    }
+    return { valid: true };
   }
-  if (CARRIER_DERIVED_STATES.has(to) && (evidence.authority !== 'carrier' || evidence.evidenceVerified !== true)) {
-    return { valid: false, reason: 'carrier_evidence_required' };
+  if (CARRIER_DERIVED_STATES.has(to)) {
+    if (evidence.authority !== 'carrier' || evidence.evidenceVerified !== true) {
+      return { valid: false, reason: 'carrier_evidence_required' };
+    }
+    return { valid: true };
+  }
+  if (evidence.authority !== 'system') {
+    return { valid: false, reason: 'application_authority_required' };
   }
   return { valid: true };
 }
