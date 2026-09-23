@@ -18,7 +18,7 @@ jobs:
           node-version: 24
       # The lockfile in this PR is incomplete (it has importer entries but no
       # package snapshots), so allow pnpm to repair it before installing.
-      - run: pnpm pnpm install --lockfile-only
+      - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm typecheck
