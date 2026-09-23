@@ -18,7 +18,10 @@ const allTransitions: ReadonlyArray<readonly [ShipmentState, ShipmentState[]]> =
   ['paid', ['label_purchasing', 'cancelled']],
   ['label_purchasing', ['label_created', 'paid', 'failed']],
   ['label_created', ['in_transit', 'delivered', 'label_voided']],
-  ['in_transit', ['out_for_delivery', 'delivered', 'delivery_exception', 'returned']],
+  [
+    'in_transit',
+    ['out_for_delivery', 'delivered', 'delivery_exception', 'returned'],
+  ],
   ['out_for_delivery', ['delivered', 'delivery_exception', 'returned']],
   ['delivery_exception', ['in_transit', 'out_for_delivery', 'returned']],
 ];

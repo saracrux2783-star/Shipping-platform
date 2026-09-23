@@ -25,7 +25,7 @@
 
 ## Cancellation and changes
 
-Cancellation is a business operation, not a status mutation. Before payment it may cancel a draft or pending payment. After payment, cancellation requires policy checks and may be refused once a shipment is already in irreversible fulfillment work.
+Cancellation is a business operation, not a status mutation. Before payment it may cancel a draft or pending payment. After payment, cancellation requires policy checks and may be refused once a label or shipment reaches irreversible fulfillment work.
 
 ## Explicit behavior matrix
 
