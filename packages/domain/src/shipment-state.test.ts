@@ -155,10 +155,9 @@ describe('shipment state machine', () => {
   it.each([...CARRIER_DERIVED_STATES])(
     'requires verified carrier evidence for %s',
     (target) => {
-      const from =
-        target === 'in_transit' || target === 'delivered'
-          ? 'label_created'
-          : 'in_transit';
+      const from = target === 'in_transit' || target === 'delivered'
+        ? 'label_created'
+        : 'in_transit';
       expect(
         validateShipmentTransition(from, target, { authority: 'carrier' }),
       ).toEqual({ valid: false, reason: 'carrier_evidence_required' });
